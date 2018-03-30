@@ -1,0 +1,14 @@
+package: main
+clientsets:
+- name: kubernetes
+  apis:
+  - name: core
+    version: v1
+    defaultresync: 30
+    resources:
+    - name: Pod
+      plural: Pods
+      scope: Namespaced
+      create: true
+      update: true
+      delete: true
