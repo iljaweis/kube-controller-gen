@@ -3,11 +3,11 @@ package main
 import (
 	"bytes"
 	"flag"
-	"github.com/davecgh/go-spew/spew"
-	"gopkg.in/yaml.v2"
 	"io/ioutil"
 	"strings"
 	"text/template"
+
+	"gopkg.in/yaml.v2"
 )
 
 type Resource struct {
@@ -57,8 +57,6 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-
-	spew.Dump(c)
 
 	t1 := `package {{ .Package }}
 
