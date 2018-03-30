@@ -64,7 +64,7 @@ APIs:
 - __version__ is the API version
 - __defaultresync__ controls how often to check your resources, in addition to reacting to events. In seconds. Set to 0 to disable resync.
 - __resources__ are the resources in API to watch.
-_ __group__ is the API group name (empty for `core`)
+- __group__ is the API group name (empty for `core`)
 
 Resources:
 
