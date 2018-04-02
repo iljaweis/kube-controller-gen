@@ -20,22 +20,24 @@ type Resource struct {
 }
 
 type Api struct {
-	Name          string
-	Group         string
-	Version       string
-	Defaultresync int
-	Resources     []Resource
+	Name      string
+	Group     string
+	Version   string
+	Resources []Resource
 }
 
 type Clientset struct {
-	Name   string
-	Import string
-	Apis   []Api
+	Name          string
+	Import        string
+	Defaultresync int
+	Apis          []Api
 }
 
 type Config struct {
-	Package    string
-	Clientsets []Clientset
+	Package         string
+	Clientsets      []Clientset
+	Controllerextra string
+	Imports         string
 }
 
 func main() {
@@ -75,41 +77,47 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
+	kubernetesinformers "k8s.io/client-go/informers"
 
 {{ range $clientset := .Clientsets }}
 {{ range $api := .Apis }}
 {{ if eq $clientset.Name "kubernetes" }}
 {{ if eq $api.Name "core" }}
+{{ if anyresourcewithdelete $api }}
 	corev1 "k8s.io/api/core/v1"
-	coreinformers "k8s.io/client-go/informers"
+{{ end }}
 	corelisterv1 "k8s.io/client-go/listers/core/v1"
+{{ else }}
+{{ if anyresourcewithdelete $api }}
+	{{ $api.Name }}{{ $api.Version }} "k8s.io/api/{{ $api.Name }}/{{ $api.Version }}"
+{{ end }}
+	{{ $api.Name }}lister{{ $api.Version }} "k8s.io/client-go/listers/{{ $api.Name }}/{{ $api.Version }}"
 {{ end }}
 {{ else }}
 	{{ $api.Name }}clientset "{{ $clientset.Import }}/pkg/client/clientset/versioned"
+{{ if anyresourcewithdelete $api }}
 	{{ $api.Name }}{{ $api.Version }} "{{ $clientset.Import }}/pkg/apis/{{ $api.Group }}/{{ $api.Version }}"
+{{ end -}}
 	{{ $api.Name }}informers "{{ $clientset.Import }}/pkg/client/informers/externalversions"
 	{{ $api.Name }}lister{{ $api.Version }} "{{ $clientset.Import }}/pkg/client/listers/{{ $api.Group }}/{{ $api.Version }}"
 {{ end -}}
 {{ end -}}
 {{ end -}}
+
+{{ .Imports }}
 )
 
 type Controller struct {
 {{ range $clientset := .Clientsets -}}
 {{ if eq $clientset.Name "kubernetes" }}
 	Kubernetes kubernetes.Interface
+	KubernetesFactory kubernetesinformers.SharedInformerFactory
 {{- else }}
 	{{ title $clientset.Name }}Client {{ $clientset.Name }}clientset.Interface
-{{ end -}}
+	{{ title $clientset.Name }}Factory {{ $clientset.Name }}informers.SharedInformerFactory
+{{ end }}
 
 {{ range $api := $clientset.Apis -}}
-{{ if eq $clientset.Name "kubernetes" -}}
-{{ if eq $api.Name "core" }}
-	CoreFactory coreinformers.SharedInformerFactory
-{{ end -}}
-{{ else }}
-	{{ title $api.Name }}Factory {{ $api.Name }}informers.SharedInformerFactory
-{{ end -}}
 
 {{ range $res := $api.Resources }}
 	{{ title $res.Name }}Queue workqueue.RateLimitingInterface
@@ -118,6 +126,8 @@ type Controller struct {
 {{ end -}}{{/* resources*/}}
 {{ end -}}{{/* api */}}
 {{ end -}}{{/* clientset */}}
+
+{{ .Controllerextra }}
 }
 
 // Expects the clientsets to be set.
@@ -126,12 +136,12 @@ func (c *Controller) Initialize() {
 	if c.{{ clientsetname $clientset }} == nil {
 		panic("c.{{ clientsetname $clientset }} is nil")
 	}
+	c.{{ title $clientset.Name }}Factory = {{ $clientset.Name }}informers.NewSharedInformerFactory(c.{{ clientsetname $clientset }}, time.Second*{{ $clientset.Defaultresync }})
 
 {{ range $api := $clientset.Apis }}
-	c.{{ title $api.Name }}Factory = {{ $api.Name }}informers.NewSharedInformerFactory(c.{{ clientsetname $clientset }}, time.Second*{{ $api.Defaultresync }})
 
 {{ range $res := $api.Resources }}
-	{{ $res.Name }}Informer := c.{{ title $api.Name }}Factory.{{ title $api.Name }}().{{ title $api.Version }}().{{ $res.Plural }}()
+	{{ $res.Name }}Informer := c.{{ title $clientset.Name }}Factory.{{ title $api.Name }}().{{ title $api.Version }}().{{ $res.Plural }}()
 	{{ $res.Name }}Queue := workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
 	c.{{ $res.Name }}Queue = {{ $res.Name }}Queue
 	c.{{ $res.Name }}Lister = {{ $res.Name }}Informer.Lister()
@@ -189,9 +199,7 @@ func (c *Controller) Start() {
 	stopCh := make(chan struct{})
 	defer close(stopCh)
 {{ range $clientset := .Clientsets -}}
-{{ range $api := $clientset.Apis }}
-	go c.{{ title $api.Name }}Factory.Start(stopCh)
-{{- end -}}
+	go c.{{ title $clientset.Name }}Factory.Start(stopCh)
 {{ end }}
 	go c.Run(stopCh)
 
@@ -335,6 +343,14 @@ func (c *Controller) process{{ $res.Name }}(key string) error {
 				}
 			}
 			return strings.Join(syncs, ", ")
+		},
+		"anyresourcewithdelete": func(a Api) bool {
+			for _, r := range a.Resources {
+				if r.Delete {
+					return true
+				}
+			}
+			return false
 		},
 	}
 

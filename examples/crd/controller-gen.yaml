@@ -1,0 +1,33 @@
+package: main
+clientsets:
+- name: kubernetes
+  defaultresync: 30
+  apis:
+  - name: core
+    version: v1
+    resources:
+    - name: Service
+      plural: Services
+      scope: Namespaced
+      create: true
+      update: true
+      delete: true
+    - name: Node
+      plural: Nodes
+      scope: Cluster
+      create: true
+      update: true
+      delete: true
+- name: ipam
+  import: github.com/Nexinto/k8s-ipam
+  defaultresync: 30
+  apis:
+  - name: ipam
+    version: v1
+    group: ipam.nexinto.com
+    resources:
+    - name: IpAddress
+      plural: IpAddresses
+      scope: Namespaced
+      update: true
+      delete: true
