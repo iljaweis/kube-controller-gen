@@ -6,19 +6,29 @@ Generate utility code for writing Kubernetes controllers in Go.
 
 ### Write a controller-gen.yaml
 
-This file describes the clientsets, APIs and Resources to watch.
+This file describes the clientsets, APIs and Resources to watch. See below for documentation of this file.
 
 ### Generate the controller code
 
 ```bash
-kube-controller-gen
+kube-controller-gen -s
 ```
 
-This creates a file `zz_generated_controller.go` that contains all the framework code.
+This creates two files: 
+ * `zz_generated_controller.go` contains all the framework code. Do not touch this file - 
+it will recreated completely every time you change `controller-gen.yaml` and run `kube-controller-gen`.
+ * `zz_generated_sample.go` is a sample for your main program. Rename this file to for example `main.go` and 
+ add the required functions.
+
+If you change `controller-gen.yaml`, run `kube-controller-gen` again. Without the `-s` option, it will not generate the sample file again.
+Run it with the `-s` option if you would like to create a new sample file, copy the relevant portions to your `main.go`
+and remove the file `zz_generated_sample.go` again.
+
 
 ### Write your controller
 
-Write your controller. You will need an instance of a Controller:
+Write your controller code itself. The file `zz_generated_sample.go` can be used as a starting point. Generally,
+you will need a function that initializes the `Controller` data structure and starts the controllers.
 
 ```go
 
@@ -29,7 +39,8 @@ c.Start()
 
 ```
 
-For every resource you want to watch (and you have declared in `controller-gen.yaml`), write functions:
+For every resource you want to watch (and you have declared in `controller-gen.yaml`), you need two functions that
+are called by the framework whenever your resource is created/updated or deleted:
 
 ```go
 func (c *Controller) XXXCreatedOrUpdated(x *XXX) error {
@@ -43,7 +54,18 @@ func (c *Controller) XXXDeleted(x *XXX) error {
 }
 ```
 
+The sample file will contain such a function for every resource you declared.
+
 See `examples` for complete examples.
+
+## Calling kube-controller-gen
+
+`kube-controller-gen` supports the following options:
+
+* **-c** the location of the configuration file (default: `controller-gen.yaml` in your current directory)
+* **-o** output directory (default: the current directory)
+* **-s** create the sample file `zz_generated_sample.go` (default: false). This will overwrite the file so do not add
+any code there!
 
 ## controller-gen.yaml
 
