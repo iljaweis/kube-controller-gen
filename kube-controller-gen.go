@@ -42,9 +42,11 @@ type Config struct {
 
 func main() {
 	var configFile, outputDir string
+	var generateSample bool
 
 	flag.StringVar(&configFile, "c", "controller-gen.yaml", "configuration file")
 	flag.StringVar(&outputDir, "o", "./", "output directory")
+	flag.BoolVar(&generateSample, "s", false, "generate a sample file")
 
 	flag.Parse()
 
@@ -319,10 +321,94 @@ func (c *Controller) process{{ $res.Name }}(key string) error {
 {{- end -}}
 {{ end -}}
 {{ end -}}
+`
 
+	t2 := `package {{ .Package }}
+
+import (
+  "flag"
+  "os"
+
+	log "github.com/sirupsen/logrus"
+{{ range $clientset := .Clientsets -}}
+{{ if eq $clientset.Name "kubernetes" }}
+  "k8s.io/client-go/kubernetes"
+  "k8s.io/client-go/tools/clientcmd"
+{{ else }}
+  {{ $clientset.Name }}clientset "{{ $clientset.Import }}/pkg/client/clientset/versioned"
+{{ end -}}
+{{ range $api := .Apis -}}
+{{- if eq $clientset.Name "kubernetes" }}
+  {{ $api.Name }}{{ $api.Version }} "k8s.io/api/{{ $api.Name }}/{{ $api.Version }}"
+{{- else }}
+	{{ $api.Name }}{{ $api.Version }} "{{ $clientset.Import }}/pkg/apis/{{ $api.Group }}/{{ $api.Version }}"
+{{- end -}}
+{{ end -}}
+{{ end }}
+)
+
+func main() {
+
+	flag.Parse()
+
+	// If this is not set, glog tries to log into something below /tmp which doesn't exist.
+	flag.Lookup("log_dir").Value.Set("/")
+
+	var kubeconfig string
+
+	if e := os.Getenv("KUBECONFIG"); e != "" {
+		kubeconfig = e
+	}
+
+	clientConfig, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
+	if err != nil {
+		panic(err.Error())
+	}
+{{ range $clientset := .Clientsets -}}
+{{ if eq $clientset.Name "kubernetes" }}
+  kubernetesclient, err := {{ $clientset.Name }}.NewForConfig(clientConfig){{ else }}
+  {{ $clientset.Name }}client, err := {{ $clientset.Name }}clientset.NewForConfig(clientConfig){{ end }}
+	if err != nil {
+		panic(err.Error())
+	}
+{{ end }}
+	c := &Controller{
+{{- range $clientset := .Clientsets -}}
+{{ if eq $clientset.Name "kubernetes" }}
+    Kubernetes: kubernetesclient,{{ else }}
+		{{ title $clientset.Name }}Client: {{ $clientset.Name }}client,{{ end }}{{ end }}
+	}
+
+	c.Initialize()
+	c.Start()
+}
+
+
+
+
+
+{{ range $clientset := .Clientsets -}}
+{{ range $api := $clientset.Apis -}}
+{{ range $res := $api.Resources }}
+
+func (c *Controller) {{ $res.Name }}CreatedOrUpdated({{ lc $res.Name }} *{{ $api.Name }}{{ $api.Version }}.{{ $res.Name }}) error {
+  log.Debugf("processing {{ lc $res.Name }} '%s-%s'", {{ lc $res.Name }}.Namespace, {{ lc $res.Name }}.Name)
+  return nil
+}
+
+func (c *Controller) {{ $res.Name }}Deleted({{ lc $res.Name }} *{{ $api.Name }}{{ $api.Version }}.{{ $res.Name }}) error {
+  log.Debugf("processing deleted {{ lc $res.Name }} '%s-%s'", {{ lc $res.Name }}.Namespace, {{ lc $res.Name }}.Name)
+  return nil
+}
+{{- end -}}
+{{ end -}}
+{{ end -}}
 `
 
 	funcMap := template.FuncMap{
+		"lc": func(s string) string {
+			return strings.ToLower(s)
+		},
 		"title": func(s string) string {
 			return strings.Title(s)
 		},
@@ -364,4 +450,19 @@ func (c *Controller) process{{ $res.Name }}(key string) error {
 	if err != nil {
 		panic(err)
 	}
+
+	if generateSample {
+
+		var buffer bytes.Buffer
+
+		t, err = template.New("controller").Funcs(funcMap).Parse(t2)
+
+		err = t.Execute(&buffer, c)
+
+		err = ioutil.WriteFile(outputDir+"zz_generated_sample.go", buffer.Bytes(), 0644)
+		if err != nil {
+			panic(err)
+		}
+	}
+
 }
